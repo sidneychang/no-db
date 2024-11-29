@@ -8,25 +8,32 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sidneychang/no-db/consistanthash"
+	"github.com/sidneychang/no-db/consistenthash"
 	pb "github.com/sidneychang/no-db/proto"
 	"google.golang.org/grpc"
 )
 
-var connPool = make(map[string]*grpc.ClientConn) // 连接池
-var hashRing *consistanthash.HashRing            // 一致性哈希环
+// Client 结构体，用于封装一致性哈希和 gRPC 连接池
+type Client struct {
+	hashRing *consistenthash.HashRing    // 一致性哈希环
+	connPool map[string]*grpc.ClientConn // 连接池
+}
+
+// NewClient 创建一个新的 Client 实例
+func NewClient(nodes []string, replicas int) *Client {
+	return &Client{
+		hashRing: consistenthash.NewHashRing(nodes, replicas),
+		connPool: make(map[string]*grpc.ClientConn),
+	}
+}
 
 func main() {
-	// 创建一致性哈希环，包含所有节点的信息
-	// hashRing = consistanthash.NewHashRing([]string{"192.168.1.2:50051", "192.168.1.3:50051"})
-	hashRing = consistanthash.NewHashRing([]string{"0.0.0.0:50051", "0.0.0.0:50052"})
-	// 创建扫描器读取用户输入
+	client := NewClient([]string{"0.0.0.0:50051", "0.0.0.0:50052"}, 3)
+
 	scanner := bufio.NewScanner(os.Stdin)
-
 	fmt.Println("Welcome to the NO-DB CLI!")
-	fmt.Println("Available commands: put <key> <value>, get <key>, delete <key>, exit")
+	fmt.Println("Available commands: put <key> <value>, get <key>, delete <key>, addnode <address>, removenode <address>, exit")
 
-	// 循环处理用户输入
 	for {
 		fmt.Print("Enter command: ")
 		scanner.Scan()
@@ -34,47 +41,50 @@ func main() {
 		command = strings.ToLower(command)
 
 		parts := splitCommand(command)
-
 		if len(parts) == 0 {
 			continue
 		}
 
-		if parts[0] == "exit" {
-			fmt.Println("Exiting the CLI.")
-			break
-		}
-
 		switch parts[0] {
+		case "exit":
+			fmt.Println("Exiting the CLI.")
+			return
 		case "put":
 			if len(parts) != 3 {
 				fmt.Println("Usage: put <key> <value>")
 				continue
 			}
-			err := put(parts[1], parts[2])
-			if err != nil {
+			if err := client.Put(parts[1], parts[2]); err != nil {
 				fmt.Printf("Error in put: %v\n", err)
 			}
-
 		case "get":
 			if len(parts) != 2 {
 				fmt.Println("Usage: get <key>")
 				continue
 			}
-			err := get(parts[1])
-			if err != nil {
+			if err := client.Get(parts[1]); err != nil {
 				fmt.Printf("Error in get: %v\n", err)
 			}
-
 		case "delete":
 			if len(parts) != 2 {
 				fmt.Println("Usage: delete <key>")
 				continue
 			}
-			err := delete(parts[1])
-			if err != nil {
+			if err := client.Delete(parts[1]); err != nil {
 				fmt.Printf("Error in delete: %v\n", err)
 			}
-
+		case "addnode":
+			if len(parts) != 2 {
+				fmt.Println("Usage: addnode <address>")
+				continue
+			}
+			client.AddNode(parts[1])
+		case "removenode":
+			if len(parts) != 2 {
+				fmt.Println("Usage: removenode <address>")
+				continue
+			}
+			client.RemoveNode(parts[1])
 		default:
 			fmt.Println("Unknown command:", parts[0])
 		}
@@ -82,26 +92,22 @@ func main() {
 }
 
 func splitCommand(command string) []string {
-	var parts []string
-	for _, part := range strings.Fields(command) {
-		parts = append(parts, part)
-	}
-	return parts
+	return strings.Fields(command)
 }
-func put(key, value string) error {
-	// 根据一致性哈希选择主节点和副本节点
-	clientMain, err := getClientConnection(key)
+
+// Put 将键值对存储到主节点和副本节点
+func (c *Client) Put(key, value string) error {
+	clientMain, err := c.getClientConnection(key)
 	if err != nil {
 		return err
 	}
 
 	replicaKey := key + "-rep"
-	clientReplica, err := getClientConnection(replicaKey)
+	clientReplica, err := c.getClientConnection(replicaKey)
 	if err != nil {
 		return err
 	}
 
-	// 使用协程并行执行主键和副本的写入
 	errChan := make(chan error, 2)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -109,7 +115,6 @@ func put(key, value string) error {
 		_, err := clientMain.Put(ctx, &pb.PutRequest{Key: key, Value: value})
 		errChan <- err
 	}()
-
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -117,7 +122,6 @@ func put(key, value string) error {
 		errChan <- err
 	}()
 
-	// 等待两个操作完成，检查错误
 	var finalErr error
 	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {
@@ -126,26 +130,17 @@ func put(key, value string) error {
 	}
 	if finalErr == nil {
 		fmt.Printf("Put: %s = %s (and replica)\n", key, value)
-	} else {
-		fmt.Printf("Put error: %v\n", finalErr)
 	}
 	return finalErr
 }
 
-func get(key string) error {
-	// 根据一致性哈希选择主节点
-	clientMain, err := getClientConnection(key)
+// Get 获取指定键的值
+func (c *Client) Get(key string) error {
+	clientMain, err := c.getClientConnection(key)
 	if err != nil {
 		return err
 	}
 
-	replicaKey := key + "-rep"
-	clientReplica, err := getClientConnection(replicaKey)
-	if err != nil {
-		return err
-	}
-
-	// 尝试获取主键的值
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	resp, err := clientMain.Get(ctx, &pb.GetRequest{Key: key})
@@ -154,7 +149,12 @@ func get(key string) error {
 		return nil
 	}
 
-	// 如果主键获取失败，尝试从副本获取
+	replicaKey := key + "-rep"
+	clientReplica, err := c.getClientConnection(replicaKey)
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	resp, err = clientReplica.Get(ctx, &pb.GetRequest{Key: replicaKey})
@@ -162,24 +162,22 @@ func get(key string) error {
 		fmt.Printf("Get (replica): %s = %s\n", key, resp.Value)
 		return nil
 	}
-
 	return fmt.Errorf("Get failed: %v (and replica)", err)
 }
 
-func delete(key string) error {
-	// 根据一致性哈希选择主节点和副本节点
-	clientMain, err := getClientConnection(key)
+// Delete 删除指定键的值
+func (c *Client) Delete(key string) error {
+	clientMain, err := c.getClientConnection(key)
 	if err != nil {
 		return err
 	}
 
 	replicaKey := key + "-rep"
-	clientReplica, err := getClientConnection(replicaKey)
+	clientReplica, err := c.getClientConnection(replicaKey)
 	if err != nil {
 		return err
 	}
 
-	// 使用协程并行执行主键和副本的删除
 	errChan := make(chan error, 2)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -187,7 +185,6 @@ func delete(key string) error {
 		_, err := clientMain.Delete(ctx, &pb.DeleteRequest{Key: key})
 		errChan <- err
 	}()
-
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -195,7 +192,6 @@ func delete(key string) error {
 		errChan <- err
 	}()
 
-	// 等待两个操作完成，检查错误
 	var finalErr error
 	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {
@@ -204,29 +200,41 @@ func delete(key string) error {
 	}
 	if finalErr == nil {
 		fmt.Printf("Deleted: %s (and replica)\n", key)
-	} else {
-		fmt.Printf("Delete error: %v\n", finalErr)
 	}
 	return finalErr
 }
 
-// getClientConnection 使用一致性哈希来获取客户端连接
-func getClientConnection(key string) (pb.KVDBClient, error) {
-	// 根据一致性哈希找到目标节点
-	nodeAddr := hashRing.Get(key)
+// AddNode 添加新节点到哈希环
+func (c *Client) AddNode(address string) {
+	c.hashRing.AddNode(address)
+	fmt.Printf("Node %s added to the hash ring.\n", address)
+}
 
-	// 检查连接池中是否已存在该连接
-	if conn, exists := connPool[nodeAddr]; exists {
-		// 如果存在，直接返回现有的连接
+// RemoveNode 从哈希环中删除节点
+func (c *Client) RemoveNode(address string) {
+	c.hashRing.RemoveNode(address)
+	c.removeClientConnection(address)
+	fmt.Printf("Node %s removed from the hash ring.\n", address)
+}
+
+// getClientConnection 获取指定键的 gRPC 连接
+func (c *Client) getClientConnection(key string) (pb.KVDBClient, error) {
+	nodeAddr := c.hashRing.Get(key)
+	if conn, exists := c.connPool[nodeAddr]; exists {
 		return pb.NewKVDBClient(conn), nil
 	}
-
-	// 如果不存在，建立新的连接并存储到连接池
 	conn, err := grpc.Dial(nodeAddr, grpc.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("Failed to connect to server: %v", err)
 	}
-
-	connPool[nodeAddr] = conn // 将新的连接存入连接池
+	c.connPool[nodeAddr] = conn
 	return pb.NewKVDBClient(conn), nil
+}
+
+// removeClientConnection 从连接池中删除节点连接
+func (c *Client) removeClientConnection(address string) {
+	if conn, exists := c.connPool[address]; exists {
+		conn.Close()
+		delete(c.connPool, address)
+	}
 }
