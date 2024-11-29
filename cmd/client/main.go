@@ -149,19 +149,6 @@ func (c *Client) Get(key string) error {
 		return nil
 	}
 
-	replicaKey := key + "-rep"
-	clientReplica, err := c.getClientConnection(replicaKey)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	resp, err = clientReplica.Get(ctx, &pb.GetRequest{Key: replicaKey})
-	if err == nil {
-		fmt.Printf("Get (replica): %s = %s\n", key, resp.Value)
-		return nil
-	}
 	return fmt.Errorf("Get failed: %v (and replica)", err)
 }
 
@@ -172,36 +159,11 @@ func (c *Client) Delete(key string) error {
 		return err
 	}
 
-	replicaKey := key + "-rep"
-	clientReplica, err := c.getClientConnection(replicaKey)
-	if err != nil {
-		return err
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = clientMain.Delete(ctx, &pb.DeleteRequest{Key: key})
 
-	errChan := make(chan error, 2)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_, err := clientMain.Delete(ctx, &pb.DeleteRequest{Key: key})
-		errChan <- err
-	}()
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_, err := clientReplica.Delete(ctx, &pb.DeleteRequest{Key: replicaKey})
-		errChan <- err
-	}()
-
-	var finalErr error
-	for i := 0; i < 2; i++ {
-		if err := <-errChan; err != nil {
-			finalErr = err
-		}
-	}
-	if finalErr == nil {
-		fmt.Printf("Deleted: %s (and replica)\n", key)
-	}
-	return finalErr
+	return err
 }
 
 // AddNode 添加新节点到哈希环
