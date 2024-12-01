@@ -5,7 +5,7 @@ type RbTreeColor bool
 var RED RbTreeColor = true
 var BLACK RbTreeColor = false
 
-type RbTreeKeyType int
+type RbTreeKeyType uint32
 type RbTreeValueType interface{}
 
 type RbTreeNode struct {
@@ -29,7 +29,7 @@ func NewRbTree() *RbTree {
 	sentinel.Left = sentinel
 	sentinel.Right = sentinel
 	sentinel.Parent = sentinel
-	sentinel.Key = -1
+	sentinel.Key = 0
 	sentinel.Value = nil
 
 	return &RbTree{
