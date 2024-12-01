@@ -289,7 +289,7 @@ func (node *RbTreeNode) FindMaxNodeBy(rbTreeNilNode *RbTreeNode) *RbTreeNode {
 	return newNode
 }
 
-func (rbTree *RbTree) findmaxkey(key RbTreeKeyType) RbTreeValueType {
+func (rbTree *RbTree) findmaxkey(key RbTreeKeyType) *RbTreeNode {
 	node := rbTree.Root
 	targetNode := rbTree.sentinel
 	for node != rbTree.sentinel {
@@ -303,5 +303,5 @@ func (rbTree *RbTree) findmaxkey(key RbTreeKeyType) RbTreeValueType {
 			break
 		}
 	}
-	return targetNode.Value
+	return targetNode
 }
