@@ -158,8 +158,52 @@ func (rbTree *RbTree) InsertFixUp(node *RbTreeNode) {
 	rbTree.Root.Color = BLACK
 }
 
-func (rbTree *RbTree) Delete(key RbTreeKeyType) {
-	node := rbTree.getNode(key)
+func (rbTree *RbTree) DeleteByKey(key RbTreeKeyType) {
+	node := rbTree.GetNode(key)
+	sentinelNode := rbTree.sentinel
+	if node == sentinelNode {
+		return
+	}
+	willDeleteNode := sentinelNode
+	willDeleteChildNode := sentinelNode
+
+	if node.Left == sentinelNode || node.Right == sentinelNode {
+		willDeleteNode = node
+	} else {
+		willDeleteNode = node.FindMinNodeBy(sentinelNode)
+	}
+
+	if willDeleteNode.Left != sentinelNode {
+		willDeleteChildNode = willDeleteNode.Left
+	} else if willDeleteNode.Right != sentinelNode {
+		willDeleteChildNode = willDeleteNode.Right
+	}
+
+	willDeleteChildNode.Parent = willDeleteNode.Parent
+
+	if willDeleteNode.Parent == sentinelNode {
+		rbTree.Root = willDeleteChildNode
+	} else if willDeleteNode == willDeleteNode.Parent.Left {
+		willDeleteNode.Parent.Left = willDeleteChildNode
+	} else {
+		willDeleteNode.Parent.Right = willDeleteChildNode
+	}
+
+	if willDeleteNode != node {
+		node.Key = willDeleteNode.Key
+		node.Value = willDeleteNode.Value
+	}
+
+	if willDeleteNode.Color == BLACK {
+		rbTree.DeleteFixUp(willDeleteChildNode)
+	}
+
+	willDeleteNode = nil
+	rbTree.NodeNum--
+
+}
+
+func (rbTree *RbTree) DeleteByNode(node *RbTreeNode) {
 	sentinelNode := rbTree.sentinel
 	if node == sentinelNode {
 		return
@@ -259,7 +303,7 @@ func (rbTree *RbTree) DeleteFixUp(node *RbTreeNode) {
 	node.Color = BLACK
 }
 
-func (rbTree *RbTree) getNode(key RbTreeKeyType) *RbTreeNode {
+func (rbTree *RbTree) GetNode(key RbTreeKeyType) *RbTreeNode {
 	node := rbTree.Root
 	for node != rbTree.sentinel {
 		if node.Key > key {
@@ -289,7 +333,7 @@ func (node *RbTreeNode) FindMaxNodeBy(rbTreeNilNode *RbTreeNode) *RbTreeNode {
 	return newNode
 }
 
-func (rbTree *RbTree) findmaxkey(key RbTreeKeyType) *RbTreeNode {
+func (rbTree *RbTree) FindMaxKey(key RbTreeKeyType) *RbTreeNode {
 	node := rbTree.Root
 	targetNode := rbTree.sentinel
 	for node != rbTree.sentinel {
