@@ -39,6 +39,17 @@ func NewRbTree() *RbTree {
 	}
 }
 
+func (rbTree *RbTree) NewRbTreeNode(key RbTreeKeyType, value RbTreeValueType) *RbTreeNode {
+	return &RbTreeNode{
+		Color:  RED,
+		Parent: rbTree.sentinel,
+		Left:   rbTree.sentinel,
+		Right:  rbTree.sentinel,
+		Key:    key,
+		Value:  value,
+	}
+}
+
 func (rbTree *RbTree) LeftRotate(node *RbTreeNode) {
 	tmpNode := node.Right
 	node.Right = tmpNode.Left
