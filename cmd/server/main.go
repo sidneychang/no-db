@@ -15,6 +15,7 @@ import (
 	pb "github.com/sidneychang/no-db/proto" // 替换为你的 protobuf 路径
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/peer"
 )
 
 type server struct {
@@ -28,6 +29,9 @@ type server struct {
 
 // Put 方法：客户端写请求
 func (s *server) Put(ctx context.Context, req *pb.PutRequest) (*pb.Empty, error) {
+	if !s.isPrimary && !s.isRequestFromPrimary(ctx) {
+		return nil, fmt.Errorf("Write operations are only allowed from the Primary server")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -63,28 +67,20 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 
 // Delete 方法：客户端删除请求
 func (s *server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.Empty, error) {
+	if !s.isPrimary && !s.isRequestFromPrimary(ctx) {
+		return nil, fmt.Errorf("Delete operations are only allowed from the Primary server")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
+	err := s.db.Delete([]byte(req.Key))
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[%s] Deleted key: %s\n", s.getRole(), req.Key)
 	// 如果是 Primary，处理删除并同步到副本
+	// 如果是 Primary，则将删除操作复制到副本
 	if s.isPrimary {
-		// 删除本地数据
-		err := s.db.Delete([]byte(req.Key))
-		if err != nil {
-			return nil, err
-		}
-		log.Printf("[%s] Deleted key: %s\n", s.getRole(), req.Key)
-
-		// 如果是 Primary，则将删除操作复制到副本
 		go s.replicateDeleteToReplicas(req)
-
-	} else {
-		err := s.db.Delete([]byte(req.Key))
-		if err != nil {
-			return nil, err
-		}
-		// 如果是 Replica，直接删除
-		log.Printf("[%s] Deleted key: %s\n", s.getRole(), req.Key)
 	}
 
 	return &pb.Empty{}, nil
@@ -122,6 +118,30 @@ func (s *server) replicateToReplicas(req *pb.PutRequest) {
 	wg.Wait()
 }
 
+// 检查请求是否来自 Primary 节点
+func (s *server) isRequestFromPrimary(ctx context.Context) bool {
+	// 获取 gRPC 请求的 Peer 信息
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		log.Printf("[%s] Failed to get peer info", s.getRole())
+		return false
+	}
+
+	// 解析出请求来源的 IP 地址
+	peerAddr, _, err := net.SplitHostPort(p.Addr.String())
+	if err != nil {
+		log.Printf("[%s] Failed to parse peer address: %v", s.getRole(), err)
+		return false
+	}
+
+	// 检查请求来源是否为 Primary 地址
+	if peerAddr == s.primaryAddr {
+		return true
+	}
+	log.Printf("[%s] Unauthorized request from %s, expect form %s", s.getRole(), peerAddr, s.primaryAddr)
+	return false
+}
+
 // 获取当前节点的角色
 func (s *server) getRole() string {
 	if s.isPrimary {
@@ -135,11 +155,12 @@ func main() {
 	isPrimary := flag.Bool("primary", false, "Run as primary server")
 	replicas := flag.String("replicas", "", "Comma-separated list of replica addresses")
 	pathdir := flag.String("pathdir", os.TempDir(), "The directory for data storage")
+	primaryAddr := flag.String("primaryAddr", "", "Primary server address")
 	port := flag.Int("port", 50051, "Server port")
 	flag.Parse()
 
 	// 初始化 Server
-	s, err := NewServer(*pathdir, *isPrimary)
+	s, err := NewServer(*pathdir, *isPrimary, *primaryAddr)
 	if err != nil {
 		log.Fatalf("Failed to initialize server: %v", err)
 	}
@@ -171,16 +192,18 @@ func (s *server) initReplicaClients(replicaAddrs string) {
 		if err != nil {
 			log.Fatalf("Failed to connect to replica: %v", err)
 		}
+		log.Println("Connected to replica:", addr)
 		client := pb.NewKVDBClient(conn)
+
 		s.replicaClients = append(s.replicaClients, client)
 	}
 }
-func NewServer(pathdir string, isPrimary bool) (*server, error) {
+func NewServer(pathdir string, isPrimary bool, primaryAddr string) (*server, error) {
 	// 使用指定的 pathdir 作为数据存储目录
 	options := config.NewOptions(1, 1024, pathdir)
 	db, err := engine.NewDB(*options)
 	if err != nil {
 		return nil, err
 	}
-	return &server{db: db, isPrimary: isPrimary}, nil
+	return &server{db: db, isPrimary: isPrimary, primaryAddr: primaryAddr}, nil
 }

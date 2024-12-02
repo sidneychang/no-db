@@ -81,8 +81,6 @@ func (df *DataFile) ReadRecord(offset int64) (*Record, int64, error) {
 	}
 
 	header, headerSize := decodeRecordHeader(headerBuf)
-	fmt.Println(header)
-	fmt.Println(headerSize)
 	if header == nil {
 
 		return nil, 0, fmt.Errorf("invalid record header")

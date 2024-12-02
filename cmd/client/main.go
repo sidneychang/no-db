@@ -28,7 +28,7 @@ func NewClient(nodes []string, replicas int) *Client {
 }
 
 func main() {
-	client := NewClient([]string{"0.0.0.0:50051", "0.0.0.0:50052"}, 3)
+	client := NewClient([]string{"0.0.0.0:50051"}, 3)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("Welcome to the NO-DB CLI!")
@@ -102,36 +102,11 @@ func (c *Client) Put(key, value string) error {
 		return err
 	}
 
-	replicaKey := key + "-rep"
-	clientReplica, err := c.getClientConnection(replicaKey)
-	if err != nil {
-		return err
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = clientMain.Put(ctx, &pb.PutRequest{Key: key, Value: value})
+	return err
 
-	errChan := make(chan error, 2)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_, err := clientMain.Put(ctx, &pb.PutRequest{Key: key, Value: value})
-		errChan <- err
-	}()
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_, err := clientReplica.Put(ctx, &pb.PutRequest{Key: replicaKey, Value: value})
-		errChan <- err
-	}()
-
-	var finalErr error
-	for i := 0; i < 2; i++ {
-		if err := <-errChan; err != nil {
-			finalErr = err
-		}
-	}
-	if finalErr == nil {
-		fmt.Printf("Put: %s = %s (and replica)\n", key, value)
-	}
-	return finalErr
 }
 
 // Get 获取指定键的值
