@@ -12,19 +12,19 @@ import (
 // 虚拟节点数
 const DefaultVirtualNodes = 100
 
-type HashRing struct {
+type RbHashRing struct {
 	virtualNodes int      // 每个物理节点的虚拟节点数
 	nodes        []string // 所有节点的列表
 	rbTree       rb.RbTree
 	mu           sync.RWMutex // 锁，保护并发访问
 }
 
-func NewHashRing(nodes []string, virtualNodes int) *HashRing {
+func NewRbHashRing(nodes []string, virtualNodes int) *RbHashRing {
 	if virtualNodes <= 0 {
 		virtualNodes = DefaultVirtualNodes
 	}
 
-	ring := &HashRing{
+	ring := &RbHashRing{
 		virtualNodes: virtualNodes,
 		nodes:        nodes,
 		rbTree:       *rb.NewRbTree(),
@@ -39,7 +39,7 @@ func NewHashRing(nodes []string, virtualNodes int) *HashRing {
 }
 
 // addNode 将节点加入哈希环
-func (r *HashRing) AddNode(node string) {
+func (r *RbHashRing) AddNode(node string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -52,7 +52,7 @@ func (r *HashRing) AddNode(node string) {
 }
 
 // removeNode 从哈希环中移除节点
-func (r *HashRing) RemoveNode(node string) {
+func (r *RbHashRing) RemoveNode(node string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -64,12 +64,12 @@ func (r *HashRing) RemoveNode(node string) {
 
 }
 
-func (r *HashRing) hash(value string) uint32 {
+func (r *RbHashRing) hash(value string) uint32 {
 	return crc32.ChecksumIEEE([]byte(value))
 }
 
 // Get 根据 key 查找对应的节点
-func (r *HashRing) Get(key string) string {
+func (r *RbHashRing) Get(key string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

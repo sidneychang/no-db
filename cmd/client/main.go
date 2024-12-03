@@ -15,14 +15,21 @@ import (
 
 // Client 结构体，用于封装一致性哈希和 gRPC 连接池
 type Client struct {
-	hashRing *consistenthash.HashRing    // 一致性哈希环
-	connPool map[string]*grpc.ClientConn // 连接池
+	hashRing consistenthash.HashRingInterface // 一致性哈希环
+	connPool map[string]*grpc.ClientConn      // 连接池
 }
 
 // NewClient 创建一个新的 Client 实例
 func NewClient(nodes []string, replicas int) *Client {
+	var useRb = true
+	var hashRing consistenthash.HashRingInterface
+	if useRb {
+		hashRing = consistenthash.NewRbHashRing(nodes, replicas)
+	} else {
+		hashRing = consistenthash.NewHashRing(nodes, replicas)
+	}
 	return &Client{
-		hashRing: consistenthash.NewHashRing(nodes, replicas),
+		hashRing: hashRing,
 		connPool: make(map[string]*grpc.ClientConn),
 	}
 }
@@ -162,7 +169,7 @@ func (c *Client) getClientConnection(key string) (pb.KVDBClient, error) {
 	}
 	conn, err := grpc.Dial(nodeAddr, grpc.WithInsecure())
 	if err != nil {
-		return nil, fmt.Errorf("Failed to connect to server: %v", err)
+		return nil, fmt.Errorf("Failed To Connect To Server: %v", err)
 	}
 	c.connPool[nodeAddr] = conn
 	return pb.NewKVDBClient(conn), nil
