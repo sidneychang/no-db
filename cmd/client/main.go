@@ -39,7 +39,7 @@ func main() {
 
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("Welcome to the NO-DB CLI!")
-	fmt.Println("Available commands: put <key> <value>, get <key>, delete <key>, addnode <address>, removenode <address>, exit")
+	fmt.Println("Available commands: put <key> <value>, get <key>, delete <key>, addnode <address>, deletenode <address>, exit")
 
 	for {
 		fmt.Print("Enter command: ")
@@ -86,6 +86,12 @@ func main() {
 				continue
 			}
 			client.AddNode(parts[1])
+		case "deletenode":
+			if len(parts) != 2 {
+				fmt.Println("Usage: addnode <address>")
+				continue
+			}
+			client.DeleteNode(parts[1])
 		case "removenode":
 			if len(parts) != 2 {
 				fmt.Println("Usage: removenode <address>")
@@ -164,6 +170,19 @@ func (c *Client) RemoveNode(address string) {
 // getClientConnection 获取指定键的 gRPC 连接
 func (c *Client) getClientConnection(key string) (pb.KVDBClient, error) {
 	nodeAddr := c.hashRing.Get(key)
+	// fmt.Println(nodeAddr)
+	if conn, exists := c.connPool[nodeAddr]; exists {
+		return pb.NewKVDBClient(conn), nil
+	}
+	conn, err := grpc.Dial(nodeAddr, grpc.WithInsecure())
+	if err != nil {
+		return nil, fmt.Errorf("Failed To Connect To Server: %v", err)
+	}
+	c.connPool[nodeAddr] = conn
+	return pb.NewKVDBClient(conn), nil
+}
+
+func (c *Client) getClientConnectionByNode(nodeAddr string) (pb.KVDBClient, error) {
 	if conn, exists := c.connPool[nodeAddr]; exists {
 		return pb.NewKVDBClient(conn), nil
 	}
@@ -181,4 +200,44 @@ func (c *Client) removeClientConnection(address string) {
 		conn.Close()
 		delete(c.connPool, address)
 	}
+}
+
+func (c *Client) ListAllData(node string) ([]string, []string) {
+	clientMain, err := c.getClientConnectionByNode(node)
+	if err != nil {
+		fmt.Errorf("Connected failed: %v", err)
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	resp, err := clientMain.ListAllData(ctx, &pb.Empty{})
+	if err != nil {
+		fmt.Errorf("GetAllData failed: %v", err)
+		return nil, nil
+	}
+
+	return resp.Keys, resp.Values
+}
+
+func (c *Client) DeleteNode(node string) {
+	Keys, Values := c.ListAllData(node)
+	c.hashRing.RemoveNode(node)
+
+	clientMain, err := c.getClientConnectionByNode(node)
+	if err != nil {
+		fmt.Errorf("Connected failed: %v", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	for i := 0; i < len(Keys); i++ {
+		clientMain.Delete(ctx, &pb.DeleteRequest{Key: Keys[i]})
+	}
+
+	for i := 0; i < len(Keys); i++ {
+		c.Put(Keys[i], Values[i])
+	}
+	fmt.Printf("Node %s removed from the hash ring.\n", node)
 }

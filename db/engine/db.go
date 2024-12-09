@@ -217,6 +217,22 @@ func (db *DB) GetListKeys() [][]byte {
 
 }
 
+func (db *DB) ListAllData() ([][]byte, [][]byte) {
+	iterator := db.index.Iterator(false)
+
+	keys := make([][]byte, db.index.Size())
+	values := make([][]byte, db.index.Size())
+
+	var idx int
+	for iterator.Rewind(); iterator.Valid(); iterator.Next() {
+		keys[idx] = iterator.Key()
+		values[idx], _ = db.getValueByPosition(iterator.Value())
+		idx++
+	}
+	return keys, values
+
+}
+
 // Fold get all the data and perform the operation specified by the user.
 // The function returns false to exit
 func (db *DB) Fold(f func(key []byte, value []byte) bool) error {

@@ -65,6 +65,22 @@ func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 	return &pb.GetResponse{Value: string(value)}, nil
 }
 
+func (s *server) ListAllData(ctx context.Context, req *pb.Empty) (*pb.ListAllDataResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	keys, values := s.db.ListAllData()
+	var Keys []string
+	var Values []string
+
+	for i := 0; i < len(keys); i++ {
+		Keys = append(Keys, string(keys[i]))
+		Values = append(Values, string(values[i]))
+		// log.Printf("[%s] - [%s] - [%d] \n", Keys[i], Values[i], i)
+	}
+	return &pb.ListAllDataResponse{Keys: Keys, Values: Values}, nil
+}
+
 // Delete 方法：客户端删除请求
 func (s *server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.Empty, error) {
 	if !s.isPrimary && !s.isRequestFromPrimary(ctx) {
@@ -158,7 +174,6 @@ func main() {
 	primaryAddr := flag.String("primaryAddr", "", "Primary server address")
 	port := flag.Int("port", 50051, "Server port")
 	flag.Parse()
-
 	// 初始化 Server
 	s, err := NewServer(*pathdir, *isPrimary, *primaryAddr)
 	if err != nil {

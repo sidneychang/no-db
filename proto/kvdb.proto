@@ -2,10 +2,13 @@ syntax = "proto3";
 
 package proto;
 
+option go_package = "github.com/sidneychang/no-db/proto";
+
 service KVDB {
   rpc Put (PutRequest) returns (Empty);
   rpc Get (GetRequest) returns (GetResponse);
   rpc Delete (DeleteRequest) returns (Empty);
+  rpc ListAllData (Empty) returns (ListAllDataResponse);
 }
 
 message PutRequest {
@@ -26,3 +29,8 @@ message DeleteRequest {
 }
 
 message Empty {}
+
+message ListAllDataResponse {
+  repeated string keys = 1;
+  repeated string values = 2;
+}
