@@ -1,57 +1,55 @@
 package rbtree
 
-import (
-	"bytes"
-)
-
 type RbTreeColor bool
 
 var RED RbTreeColor = true
 var BLACK RbTreeColor = false
 
-type RbTreeKeyType interface {
-	Compare(other RbTreeKeyType) int
-}
+type RbTreeKeyType uint32
+
+//	type RbTreeKeyType interface {
+//		Compare(other RbTreeKeyType) int
+//	}
 type RbTreeValueType interface{}
 
-type Uint32Key struct {
-	Value uint32
-}
+// type Uint32Key struct {
+// 	Value uint32
+// }
 
-// Compare 实现了 RbTreeKeyType 接口的 Compare 方法
-func (k Uint32Key) Compare(other RbTreeKeyType) int {
-	otherUint32, ok := other.(Uint32Key)
-	if !ok {
-		// 无法比较不同类型的键
-		return -2 // -2 表示类型不匹配
-	}
-	if k.Value < otherUint32.Value {
-		return -1
-	} else if k.Value > otherUint32.Value {
-		return 1
-	}
-	return 0
-}
+// // Compare 实现了 RbTreeKeyType 接口的 Compare 方法
+// func (k Uint32Key) Compare(other RbTreeKeyType) int {
+// 	otherUint32, ok := other.(Uint32Key)
+// 	if !ok {
+// 		// 无法比较不同类型的键
+// 		return -2 // -2 表示类型不匹配
+// 	}
+// 	if k.Value < otherUint32.Value {
+// 		return -1
+// 	} else if k.Value > otherUint32.Value {
+// 		return 1
+// 	}
+// 	return 0
+// }
 
-// BytesKey 是 []byte 类型的键的包装
-type BytesKey struct {
-	Value []byte
-}
+// // BytesKey 是 []byte 类型的键的包装
+// type BytesKey struct {
+// 	Value []byte
+// }
 
-// Compare 实现了 RbTreeKeyType 接口的 Compare 方法
-func (k BytesKey) Compare(other RbTreeKeyType) int {
-	otherBytes, ok := other.(BytesKey)
-	if !ok {
-		// 无法比较不同类型的键
-		return -2 // -2 表示类型不匹配
-	}
-	if bytes.Compare(k.Value, otherBytes.Value) < 0 {
-		return -1
-	} else if bytes.Compare(k.Value, otherBytes.Value) > 0 {
-		return 1
-	}
-	return 0
-}
+// // Compare 实现了 RbTreeKeyType 接口的 Compare 方法
+// func (k BytesKey) Compare(other RbTreeKeyType) int {
+// 	otherBytes, ok := other.(BytesKey)
+// 	if !ok {
+// 		// 无法比较不同类型的键
+// 		return -2 // -2 表示类型不匹配
+// 	}
+// 	if bytes.Compare(k.Value, otherBytes.Value) < 0 {
+// 		return -1
+// 	} else if bytes.Compare(k.Value, otherBytes.Value) > 0 {
+// 		return 1
+// 	}
+// 	return 0
+// }
 
 type RbTreeNode struct {
 	Color  RbTreeColor
@@ -74,7 +72,7 @@ func NewRbTree() *RbTree {
 	Sentinel.Left = Sentinel
 	Sentinel.Right = Sentinel
 	Sentinel.Parent = Sentinel
-	Sentinel.Key = nil
+	Sentinel.Key = 0
 	Sentinel.Value = nil
 
 	return &RbTree{
@@ -116,8 +114,8 @@ func (rbTree *RbTree) LeftRotate(node *RbTreeNode) {
 func (rbTree *RbTree) RightRotate(node *RbTreeNode) {
 	tmpNode := node.Left
 	node.Left = tmpNode.Right
-	if tmpNode.Left != rbTree.Sentinel {
-		tmpNode.Parent = node
+	if tmpNode.Right != rbTree.Sentinel {
+		tmpNode.Right.Parent = node
 	}
 	tmpNode.Parent = node.Parent
 	if node.Parent == rbTree.Sentinel {
@@ -127,7 +125,7 @@ func (rbTree *RbTree) RightRotate(node *RbTreeNode) {
 	} else {
 		node.Parent.Right = tmpNode
 	}
-	tmpNode.Left = node
+	tmpNode.Right = node
 	node.Parent = tmpNode
 }
 
@@ -136,9 +134,9 @@ func (rbTree *RbTree) InsertNewNode(node *RbTreeNode) {
 	tmpNode := rbTree.Root
 	for tmpNode != rbTree.Sentinel {
 		newNodeParent = tmpNode
-		if node.Key.Compare(newNodeParent.Key) == -1 {
+		if node.Key < newNodeParent.Key {
 			tmpNode = tmpNode.Left
-		} else if node.Key.Compare(newNodeParent.Key) == 1 {
+		} else if node.Key > newNodeParent.Key {
 			tmpNode = tmpNode.Right
 		} else {
 			return
@@ -149,7 +147,7 @@ func (rbTree *RbTree) InsertNewNode(node *RbTreeNode) {
 
 	if newNodeParent == rbTree.Sentinel {
 		rbTree.Root = node
-	} else if node.Key.Compare(newNodeParent.Key) == -1 {
+	} else if node.Key < newNodeParent.Key {
 		newNodeParent.Left = node
 	} else {
 		newNodeParent.Right = node
@@ -351,9 +349,9 @@ func (rbTree *RbTree) DeleteFixUp(node *RbTreeNode) {
 func (rbTree *RbTree) GetNode(key RbTreeKeyType) *RbTreeNode {
 	node := rbTree.Root
 	for node != rbTree.Sentinel {
-		if node.Key.Compare(key) == 1 {
+		if node.Key > key {
 			node = node.Right
-		} else if node.Key.Compare(key) == -1 {
+		} else if node.Key < key {
 			node = node.Left
 		} else {
 			return node
@@ -373,7 +371,7 @@ func (node *RbTreeNode) FindMinNodeBy(rbTreeNilNode *RbTreeNode) *RbTreeNode {
 func (node *RbTreeNode) FindMaxNodeBy(rbTreeNilNode *RbTreeNode) *RbTreeNode {
 	newNode := node
 	for newNode.Right != rbTreeNilNode {
-		newNode = newNode.Left
+		newNode = newNode.Right
 	}
 	return newNode
 }
@@ -382,15 +380,55 @@ func (rbTree *RbTree) FindMaxKey(key RbTreeKeyType) *RbTreeNode {
 	node := rbTree.Root
 	targetNode := rbTree.Sentinel
 	for node != rbTree.Sentinel {
-		if node.Key.Compare(key) == 1 {
+		if node.Key >= key {
 			targetNode = node
 			node = node.Left
-		} else if node.Key.Compare(key) == -1 {
+		} else if node.Key < key {
+			node = node.Right
+		}
+	}
+	if targetNode == rbTree.Sentinel {
+		return rbTree.Root.FindMinNodeBy(targetNode)
+
+	}
+	return targetNode
+}
+
+func (rbTree *RbTree) FindNextNode(key RbTreeKeyType) *RbTreeNode {
+	node := rbTree.Root
+	targetNode := rbTree.Sentinel
+	for node != rbTree.Sentinel {
+		if node.Key > key {
+			targetNode = node
+			node = node.Left
+		} else {
+			node = node.Right
+		}
+	}
+
+	if targetNode == rbTree.Sentinel {
+		return rbTree.Root.FindMinNodeBy(targetNode)
+
+	}
+	return targetNode
+}
+
+func (rbTree *RbTree) FindPreNode(key RbTreeKeyType) *RbTreeNode {
+
+	node := rbTree.Root
+	targetNode := rbTree.Sentinel
+	for node != rbTree.Sentinel {
+		if node.Key < key {
+			targetNode = node
 			node = node.Right
 		} else {
-			targetNode = node
-			break
+			node = node.Left
 		}
+	}
+
+	if targetNode == rbTree.Sentinel {
+		return rbTree.Root.FindMaxNodeBy(targetNode)
+
 	}
 	return targetNode
 }
